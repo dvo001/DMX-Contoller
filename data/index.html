@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DMX 512 Controller</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --panel-2: #1f2937;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --accent: #22c55e;
+        --accent-2: #16a34a;
+        --border: #334155;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: radial-gradient(circle at top, #1e293b, var(--bg));
+        color: var(--text);
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.2rem, 2.8vw, 2rem);
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        background: rgba(17, 24, 39, 0.9);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        position: sticky;
+        top: 8px;
+        z-index: 10;
+        backdrop-filter: blur(6px);
+      }
+
+      .toolbar-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .toolbar button {
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+
+      .toolbar button:hover {
+        border-color: var(--accent);
+      }
+
+      .toolbar input[type="number"] {
+        width: 90px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px;
+      }
+
+      .status {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      #sliders {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 10px;
+      }
+
+      .channel-card {
+        background: rgba(17, 24, 39, 0.86);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+      }
+
+      .channel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .channel-id {
+        font-weight: 600;
+      }
+
+      .channel-value {
+        font-variant-numeric: tabular-nums;
+        color: var(--accent);
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent-2);
+      }
+
+      @media (max-width: 720px) {
+        #sliders {
+          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>DMX Controller (512 Channels)</h1>
+
+      <div class="toolbar">
+        <div class="toolbar-row">
+          <button id="setAllZero" type="button">All 0</button>
+          <button id="setAllFull" type="button">All 255</button>
+          <button id="setAllHalf" type="button">All 128</button>
+        </div>
+
+        <div class="toolbar-row">
+          <label for="chInput">Channel</label>
+          <input id="chInput" type="number" min="1" max="512" value="1" />
+          <label for="valInput">Value</label>
+          <input id="valInput" type="number" min="0" max="255" value="0" />
+          <button id="applyOne" type="button">Set Channel</button>
+        </div>
+
+        <div class="status" id="statusText">Ready. 512 sliders loaded.</div>
+      </div>
+
+      <div id="sliders"></div>
+    </div>
+
+    <script>
+      const CHANNEL_COUNT = 512;
+      const values = new Uint8Array(CHANNEL_COUNT);
+      const sliderEls = new Array(CHANNEL_COUNT);
+      const valueEls = new Array(CHANNEL_COUNT);
+
+      const slidersHost = document.getElementById("sliders");
+      const statusText = document.getElementById("statusText");
+
+      function clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+      }
+
+      function setStatus(text) {
+        statusText.textContent = text;
+      }
+
+      async function sendChannel(channel, value) {
+        try {
+          await fetch(`/set?ch=${channel}&v=${value}`, { method: "GET" });
+        } catch (err) {
+          setStatus("Controller not reachable");
+        }
+      }
+
+      async function sendAll(value) {
+        try {
+          await fetch(`/all?v=${value}`, { method: "GET" });
+        } catch (err) {
+          setStatus("Controller not reachable");
+        }
+      }
+
+      function renderChannels() {
+        const frag = document.createDocumentFragment();
+
+        for (let i = 0; i < CHANNEL_COUNT; i++) {
+          const ch = i + 1;
+          const card = document.createElement("section");
+          card.className = "channel-card";
+
+          const head = document.createElement("div");
+          head.className = "channel-head";
+
+          const id = document.createElement("span");
+          id.className = "channel-id";
+          id.textContent = `CH ${ch}`;
+
+          const val = document.createElement("span");
+          val.className = "channel-value";
+          val.textContent = "0";
+
+          const slider = document.createElement("input");
+          slider.type = "range";
+          slider.min = "0";
+          slider.max = "255";
+          slider.step = "1";
+          slider.value = "0";
+
+          slider.addEventListener("input", () => {
+            const newValue = Number(slider.value);
+            values[i] = newValue;
+            val.textContent = String(newValue);
+            void sendChannel(ch, newValue);
+          });
+
+          head.appendChild(id);
+          head.appendChild(val);
+          card.appendChild(head);
+          card.appendChild(slider);
+
+          sliderEls[i] = slider;
+          valueEls[i] = val;
+          frag.appendChild(card);
+        }
+
+        slidersHost.appendChild(frag);
+      }
+
+      function setAll(v) {
+        const value = clamp(Number(v), 0, 255);
+        for (let i = 0; i < CHANNEL_COUNT; i++) {
+          values[i] = value;
+          sliderEls[i].value = String(value);
+          valueEls[i].textContent = String(value);
+        }
+
+        void sendAll(value);
+        setStatus(`Set all channels to ${value}`);
+      }
+
+      function setSingle(ch, v) {
+        const channel = clamp(Number(ch), 1, CHANNEL_COUNT);
+        const value = clamp(Number(v), 0, 255);
+        const idx = channel - 1;
+
+        values[idx] = value;
+        sliderEls[idx].value = String(value);
+        valueEls[idx].textContent = String(value);
+
+        void sendChannel(channel, value);
+        setStatus(`Set CH ${channel} -> ${value}`);
+      }
+
+      document.getElementById("setAllZero").addEventListener("click", () => setAll(0));
+      document.getElementById("setAllFull").addEventListener("click", () => setAll(255));
+      document.getElementById("setAllHalf").addEventListener("click", () => setAll(128));
+
+      document.getElementById("applyOne").addEventListener("click", () => {
+        const ch = document.getElementById("chInput").value;
+        const v = document.getElementById("valInput").value;
+        setSingle(ch, v);
+      });
+
+      renderChannels();
+    </script>
+  </body>
+</html>
